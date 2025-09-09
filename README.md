@@ -35,7 +35,7 @@ The following publication contains a complete description of these models and th
 
 ## Required R packages
 
-`mvtnorm, tmvtnorm, msm, MASS, mcmcse, coda, rjags`
+`mvtnorm, tmvtnorm, msm, MASS, clusterGeneration, mcmcse, coda, rjags`
 
 
 ## Correspondence
