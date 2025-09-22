@@ -7,7 +7,9 @@ This repository contains R code for
 
 2. fitting this model and its latent-factor approximation to the simulated data
 
-2. fitting a multivariate probit regression model to the matrix of simulated species occurrences
+3. fitting a multivariate probit regression model to the matrix of simulated species occurrences
+
+4. fitting the two multi-species occupancy models to the Tibetan Plateau data
 
 
 The following publication contains a complete description of these models and the MCMC algorithms used to fit them.
@@ -25,9 +27,17 @@ The following publication contains a complete description of these models and th
 
 - *MultispeciesOccModel_LV_JAGS.R* - fits a latent factor (LF) occupancy model to data using JAGS
 
-- *MvProbitModel_MCMC.R* - fits a multivariate probit regression model to latent occurrences using an efficient MCMC algorithm
+- *MvProbitModel_MCMC.R* - fits a multivariate probit regression model (MvP) to latent occurrences using an efficient MCMC algorithm
 
 - *SimulationStudy-Driver.R* - calls functions to simulate a data set and then fit each model to this data set
+
+
+- *realdata.rds*  - RDS file containing the camera-trap survey data of mammalian species on the Tibetan Plateau
+
+- *FitMPmodelToTibetanData.R* - driver for fitting the MP model to the Tibetan Plateau data
+
+- *FitLVmodelToTibetanData.R*  - driver for fitting the LF model to the Tibetan Plateau data
+
 
 - *EstimatePosteriorStats.R* -- estimates posterior summary statistics from Markov chains
 
