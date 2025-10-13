@@ -15,7 +15,7 @@ This repository contains R code for
 The following publication contains a complete description of these models and the MCMC algorithms used to fit them.
 
 
-*Dorazio, Li, Xiao, and Kachel (2025)  An evaluation of multi-species occupancy models with correlated species occurrences.   Methods in Ecology and Evolution (in press)*
+[Dorazio, Li, Xiao, and Kachel (2025)  An evaluation of multi-species occupancy models with correlated species occurrences.   Methods in Ecology and Evolution (in press)](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.70168)
 
 
 
