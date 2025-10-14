@@ -41,6 +41,8 @@ The following publication contains a complete description of these models and th
 
 - *EstimatePosteriorStats.R* -- estimates posterior summary statistics from Markov chains
 
+- *AppendixS1_MCMC.pdf* -- description of MCMC algorithms used to fit the multivariate probit (MP) occupancy model
+
 
 
 ## Required R packages
