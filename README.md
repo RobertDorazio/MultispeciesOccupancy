@@ -5,7 +5,7 @@ This repository contains R code for
 
 1. simulating data based on the assumptions of a multivariate probit occupancy model with correlated species occurrences
 
-2. fitting this model and its latent-factor approximation to the simulated data
+2. fitting the multi-species occupancy model and its latent-factor approximation to the simulated data
 
 3. fitting a multivariate probit regression model to the matrix of simulated species occurrences
 
@@ -41,7 +41,7 @@ The following publication contains a complete description of these models and th
 
 - *EstimatePosteriorStats.R* -- estimates posterior summary statistics from Markov chains
 
-- *AppendixS1_MCMC.pdf* -- description of MCMC algorithms used to fit the multivariate probit (MP) occupancy model
+- *AppendixS1_MCMC.pdf* -- description of MCMC algorithm used to fit the multivariate probit (MP) occupancy model
 
 
 
