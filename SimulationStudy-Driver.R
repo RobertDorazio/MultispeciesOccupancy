@@ -1,5 +1,5 @@
 source('MultispeciesOccModel_SimulateData.R')
-source('MultispeciesOccModel_MCMC.R')
+source('MultispeciesOccModel_correctedMCMC.R')
 source('MultispeciesOccModel_LV_JAGS.R')
 source('MvProbitModel_MCMC.R')
 source('EstimatePosteriorStats.R')

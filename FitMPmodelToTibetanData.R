@@ -1,5 +1,5 @@
 
-source('MultispeciesOccModel_MCMC.R')
+source('MultispeciesOccModel_correctedMCMC.R')
 source('EstimatePosteriorStats.R')
 
 

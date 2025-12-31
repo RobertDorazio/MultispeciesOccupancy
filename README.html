@@ -33,6 +33,16 @@ href="https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/2041-210X.701
 Li, Xiao, and Kachel (2025) An evaluation of multi-species occupancy
 models with correlated species occurrences. Methods in Ecology and
 Evolution 16: 2681-2693.</a></p>
+<p>The original MCMC algorithm used to fit the multivariate probit (MP)
+occupancy model (Appendix S1), included updates of Z<sub>i,j</sub> that
+failed to properly account for the correlations in occurrence between
+species. The corrected MCMC algorithm is described in</p>
+<ul>
+<li><p><em>Dorazio, Li, Xiao, and Kachel (2025) Correction to `An
+evaluation of multi-species occupancy models with correlated species
+occurrences’. Methods in Ecology and Evolution (in press)</em></p></li>
+<li><p><em>AppendixS1_correctedMCMC.pdf</em></p></li>
+</ul>
 <h2 id="list-of-files">List of files</h2>
 <ul>
 <li><p><em>MultispeciesOccModel_SimulateData.R</em> - simulates data
@@ -40,6 +50,9 @@ based on the assumptions of a multivariate probit (MP) occupancy
 model</p></li>
 <li><p><em>MultispeciesOccModel_MCMC.R</em> - fits a multivariate probit
 (MP) occupancy model to data using an efficient MCMC algorithm</p></li>
+<li><p><em>MultispeciesOccModel_correctedMCMC.R</em> - fits a
+multivariate probit (MP) occupancy model to data using the corrected
+MCMC algorithm</p></li>
 <li><p><em>MultispeciesOccModel_LV_JAGS.R</em> - fits a latent factor
 (LF) occupancy model to data using JAGS</p></li>
 <li><p><em>MvProbitModel_MCMC.R</em> - fits a multivariate probit
@@ -57,6 +70,9 @@ model to the Tibetan Plateau data</p></li>
 statistics from Markov chains</p></li>
 <li><p><em>AppendixS1_MCMC.pdf</em> – description of MCMC algorithm used
 to fit the multivariate probit (MP) occupancy model</p></li>
+<li><p><em>AppendixS1_correctedMCMC.pdf</em> – description of corrected
+MCMC algorithm used to fit the multivariate probit (MP) occupancy
+model</p></li>
 </ul>
 <h2 id="required-r-packages">Required R packages</h2>
 <p><code>mvtnorm, tmvtnorm, msm, MASS, clusterGeneration, mcmcse, coda, rjags</code></p>
