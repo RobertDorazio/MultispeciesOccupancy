@@ -1,0 +1,338 @@
+### Define function for fitting a static multispecies occupancy model  (using Gibbs and Metropolis-Hastings algorithms)
+
+
+function runMCMC(data::dataList, niter::Int, niterInterval::Int, quiet::Bool)
+
+    ### Make a local copy of data arrays
+ 
+    Y = data.Y  # array of binary-valued detections of species                ( dimensions = n x max(K) x m )
+    V = data.V  # array of regressors of detection (including intercept)      ( dimensions = n x max(K) x qcovs )
+    X = data.X  # array of regressors of occurrence (including intercept)     ( dimensions = n x pcovs )
+
+    K = vec( sum(!ismissing, V[:, :, 1], dims=2) )  #  vector of no. surveys per site
+    
+    n = size(Y, 1)             # no. sites
+    m = size(Y, 3)             # no. species
+    qcovs = size(V, 3)         # no. regressors of detection
+    pcovs = size(X, 2)         # no. regressors of occurrence
+    
+
+
+    ### Assign or compute quantities that are not affected by MCMC algorithm
+    
+    rng = Random.default_rng()  # used in HMC_sampler
+    stepsize_HMC = 0.05         # used in HMC_sampler  THIS VALUE MUST BE FIXED THROUGHOUT ALL ITERATIONS OF MCMC ALGORITHM!
+
+    XprimeX = Symmetric(X' * X)
+    inv_XprimeX = inv(cholesky(XprimeX))
+    
+    
+    ##... assign indexes for accessing elements of a symmetric m x m matrix
+    
+    lowerTri = tril!(trues(m,m), -1)  # BitArray to index the strict lower triangle of a m x m matrix
+    upperTri = triu!(trues(m,m), 1)   # BitArray to index the strict upper triangle of a m x m matrix
+
+    
+    ## ... assign hyperparameters for hierarchical pror of Sigma (Huang and Wand 2013)
+
+    nu_Sigma = 2.0                # corresponds to a uniform(-1,1) marginal prior for each correlation parameter of Sigma
+    scale_Sigma = fill(10.0, m)   # arbitrarily high values induce a noninformative Half-t prior on each diagonal element of Sigma
+
+    ## ... assign hyperparameters for Alpha
+
+    mu_Alpha = 0.0
+    sigma_Alpha = 1.0
+    
+
+
+    ### Initialize Markov chain
+
+    ## ... initialize occurrences in Z (n x m matrix) by quantizing the number of detections in Y
+
+    Ysum = Matrix{Int}(undef, n, m)
+    for i in 1:n
+        for j in 1:m
+            Ysum[i,j] = sum(Y[i, 1:K[i], j])
+        end
+    end
+
+    Z = Int.(Ysum .> 0)
+    
+
+    ## ... initialize each column of B by fitting a probit regression model to each column of Z
+
+    B = Matrix{Float64}(undef, pcovs, m)
+    for j in 1:m
+        zvec = Z[:, j]
+        fit = glm(X, zvec, Bernoulli(), ProbitLink())
+        B[:, j] = coef(fit)
+    end
+
+
+    ## ... initialize elements of R
+    
+    R = Diagonal( fill(1.0, m) )
+
+
+    ## ... initialize elements of Dvec (= diagonal elements of D)
+    ## ... (each element of Dvec must be positive!)
+    
+    Dvec = fill(1.0, m)
+    
+
+    ## ... compute Sigma and invSigma using initialized values of R and Dec
+    
+    D = Diagonal(Dvec)
+    Sigma = D * R * D
+    inv_Sigma = inv(cholesky(Sigma))
+
+
+    ## ... initialize elements of W conditional on B, Dvec, and Z while counterfactually assuming Sigma=Diagonal(Dvec^2)
+    
+    W = Matrix{Float64}(undef, n, m)
+    mu = X * B
+    for i in 1:n
+        for j in 1:m
+            distrib = Normal(mu[i,j], D[j,j])      
+            trunc_distrib = (Z[i,j] == 1) ? Truncated(distrib, 0.0, Inf) : Truncated(distrib, -Inf, 0.0)          
+            W[i,j] = rand(trunc_distrib)
+        end
+    end
+
+
+    ## ... initialize jth column of Alpha by fitting a probit regression model that uses
+    ##     data from sites where the jth species was detected at least once
+
+    Alpha = Matrix{Float64}(undef, qcovs, m)
+
+    for j in 1:m
+        
+        ## ... compute vector of detections and matrix of regressors for jth species
+        yvec = Vector{Int}(undef, 0)
+        vmat = Matrix{Float64}(undef, 0, qcovs)
+        for i in 1:n
+            if Ysum[i,j] > 0
+                yvec = vcat(yvec, Int.(Y[i, 1:K[i], j]) )         # type conversion overrides Union type
+                vmat = vcat(vmat, Float64.(V[i, 1:K[i], :]) )     # type conversion overrides Union type
+            end
+        end
+
+        ## ... fit probit regression model to estimate Alpha
+        fit = glm(vmat, yvec, Bernoulli(), ProbitLink())
+        Alpha[:, j] = coef(fit)
+        
+    end
+
+
+
+    ### Run the MCMC algorithm
+
+
+    ### ... assign parameters of Markov chain to save
+
+    mc_vecR = Matrix{Float64}(undef, niter, Int.(m*(m-1)/2) )
+    mc_vecBeta = Matrix{Float64}(undef, niter, pcovs*m)
+    mc_vecAlpha = Matrix{Float64}(undef, niter, qcovs*m)
+
+    mc_vecZ = Matrix{Int}(undef, niter, n*m)
+
+    
+    ### ... assign names of parameters of Markov chain to save
+
+    vecR_name =  ["R[$i,$j]"  for j in 1:(m-1)  for i in (j+1):m ]
+    vecBeta_name = ["beta[$i,$j]"  for j in 1:m  for i in 1:pcovs]
+    vecAlpha_name = ["alpha[$i,$j]"  for j in 1:m  for i in 1:qcovs]
+
+    vecZ_name = ["Z[$i,$j]"  for j in 1:m  for i in 1:n ]
+
+
+    ## ... begin calculation of Markov chain
+
+    start_time = time_ns()
+
+    for iter in 1:niter
+        
+
+        ## ... draw W | Sigma, B, Z
+
+        mu = X * B
+        for i in 1:n
+            wLower = ifelse.( Z[i, :] .== 1, 0.0, -Inf )
+            wUpper = ifelse.( Z[i, :] .== 0, 0.0, Inf )
+            
+            ## ... sample the truncated multivariate normal distribution using Botev's minimax-tilting algorithm (NOT REJECTION SAMPLING!)            
+            tmvn = TruncatedMVN.TruncatedMVNormal(mu[i, :], Sigma, wLower, wUpper)
+            wVec = TruncatedMVN.sample(tmvn, 1)
+            W[i, :] = vec(wVec)
+            
+        end  # end of i loop
+            
+        
+
+        ## ... draw B | W, Sigma
+
+        B_mle = inv_XprimeX * X' * W
+
+        vecB = rand( MvNormal(vec(B_mle), kron(Sigma, inv_XprimeX)) )
+
+        B = reshape(vecB, pcovs, m)
+        
+
+
+        ## ... draw Sigma | B, W
+
+        Eps = W - X * B
+        EpsPrimeEps = Symmetric(Eps' * Eps)
+        
+        shape_param = (nu_Sigma + m) / 2.0
+        rate_param = (1.0 ./ scale_Sigma.^2) .+ (nu_Sigma .* diag(inv_Sigma))
+        b = rand.(Gamma.(shape_param, 1.0 ./ rate_param))
+
+        df_param = nu_Sigma + m - 1.0 + n
+        scaleMatrix_param = inv(cholesky(2.0 * nu_Sigma * Diagonal(b) + EpsPrimeEps))
+
+        inv_Sigma = rand(Wishart(df_param, scaleMatrix_param))
+        Sigma = inv(cholesky(inv_Sigma))
+
+
+
+        ## ... compute R and Beta from the drawn values of Sigma and B
+
+        Dvec = sqrt.(diag(Sigma))
+        Dinv = Diagonal( vec(1.0 ./ Dvec) )
+        R = Dinv * Sigma * Dinv
+        Beta = B * Dinv
+        
+
+
+        ## ... draw Alpha | Y, Z
+        ##     (draws are only needed for sites where a species is present based on its occupancy state Z)
+        ##     (draw each column of Alpha independently
+
+        for j in 1:m
+            
+            ## ... To obtain proposal for Alpha_j, fit a probit regression model using data from sites
+            ## ... where the jth species is present; then use a multivariate normal distribution as a Metropolis-Hastings
+            ## ... proposal with mean and variance equal to the MLE and covariance matrix, respectively.
+
+            ## ... compute vector of detections and matrix of regressors for jth species; then fit probit regression model
+            yvec = Vector{Int}(undef, 0)
+            vmat = Matrix{Float64}(undef, 0, qcovs)
+            for i in 1:n
+                if Z[i,j] > 0
+                    yvec = vcat(yvec, Int.(Y[i, 1:K[i], j]) )         # type conversion overrides Union type
+                    vmat = vcat(vmat, Float64.(V[i, 1:K[i], :]) )     # type conversion overrides Union type
+                end
+            end
+
+            ## ... fit probit regression model and compute proposal's mean and covariance
+            fit = glm(vmat, yvec, Bernoulli(), ProbitLink())
+            mean_Proposal = coef(fit)
+            Sigma_Proposal = vcov(fit)
+
+            ## ... draw Alpha_j using Metropolis-Hastings sampling
+            proposal = MvNormal(mean_Proposal, Sigma_Proposal)
+            param_cand = rand(proposal)    
+            param = Alpha[:, j]
+            arg = argList_Alpha(yvec, vmat)
+            logL_param_cand = logDensity_Alpha(param_cand, arg)
+            logL_param = logDensity_Alpha(param, arg)
+            logQ_param_cand = logpdf(proposal, param_cand)
+            logQ_param = logpdf(proposal, param)
+    
+            logR = logL_param_cand - logL_param - logQ_param_cand + logQ_param
+            accept = logR >= 0.0  ||  rand() <= exp(logR)
+            Alpha[:, j] = accept ? param_cand : param
+            
+        end
+
+
+
+        ## ... draw Z | Y, W, B, Sigma, Alpha
+        ##     (draws are only needed if a species was not detected at least once i.e., Ysum[i,j] = 0
+
+        ## ... compute probNotDetected in K[i] surveys
+        ## ... compute mean and variance for the normal distribution of W[i,j] | W[i, -j]
+        ## ... then use Bayes' rule to calculate Pr( W[i,j] > 0 | Ysum[i,j] = 0, W[i, -j] )
+
+        for i in 1:n
+            for j in 1:m
+                ind = collect(1:m)
+                not_j = (ind .!= j)
+                
+                if Ysum[i,j] == 0
+
+                    vmat = V[i, 1:K[i], :]
+                    pvec = cdf.(Normal(), vmat * Alpha[:, j])
+                    ## probNotDetected = prod(1.0 .- pvec)
+                    probNotDetected = exp( sum(log.(1.0 .- pvec)) )
+
+                    ## ... calculate mean and variance for conditional distribution of  W[i,j] | W[i, -j]
+
+                    mu = B' * X[i, :]
+                    w_vec = W[i, not_j]
+                    Sigma_vec = Sigma[j, not_j]       # off-diagonal elements of Sigma in row j
+
+                    Sigma_sub = Sigma[not_j, not_j]   # principal submatrix of Sigma
+                    inv_Sigma_sub = inv(cholesky(Sigma_sub))
+
+                    wMean = mu[j] + Sigma_vec' * inv_Sigma_sub * (w_vec .- mu[not_j])
+                    wVar  = Sigma[j,j] - Sigma_vec' * inv_Sigma_sub * Sigma_vec
+
+                    probPositive_W = cdf(Normal(), wMean/sqrt(wVar))    # Pr(W[i,j] > 0 | W[i, -j]
+                    if probPositive_W > 0.9999
+                        Z[i,j] = 1  # analytically, as psi[i,j] -> 1, Z[i,j] ~ Bernoulli(1)
+                    else
+                        numerator = probNotDetected * probPositive_W
+                        probZ = numerator / (numerator + 1.0 - probPositive_W)
+                        Z[i,j] = rand(Bernoulli(probZ))
+                    end
+                end  # end of if Ysum[i,j] = 0
+                
+            end  # end of j loop
+        end  # end of i loop
+
+
+        
+        ## ... save iteration's results to Markov chain
+
+        mc_vecR[iter, :] = vec(R[lowerTri])
+        mc_vecBeta[iter, :] = vec(Beta)
+        mc_vecAlpha[iter, :] = vec(Alpha)
+
+        mc_vecZ[iter, :] = vec(Z)
+        
+
+
+        ## ... optionally report progress of MCMC algorithm
+
+        if (!quiet && iter == floor(iter/niterInterval) * niterInterval)
+
+            current_time = time_ns()
+            elapsed_time_seconds = (current_time - start_time) / 1.0e9
+            elapsed_time = elapsed_time_seconds / 60.
+            ndigits = elapsed_time > 1 ? 1 : 2
+            elapsed_time = round(elapsed_time, digits=ndigits)
+            println("... completed iteration $iter after $elapsed_time minutes \n")
+
+        end
+        
+    end  # end of iter loop
+
+    
+
+
+
+    ### Return a struct containing the Markov chain of each parameter and the names of each parameter
+
+    mc =  markovChainList(
+        mc_vecAlpha, mc_vecBeta, mc_vecR,
+        mc_vecZ,
+        vecAlpha_name, vecBeta_name, vecR_name,
+        vecZ_name)
+
+    return mc
+
+
+end  # end of runMCMC
+

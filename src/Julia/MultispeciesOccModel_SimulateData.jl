@@ -1,0 +1,174 @@
+
+
+
+### Define function for simulating a dataset using:
+### ... (1) Model of multispecies occupancy states based on a multivariate probit regression model
+### ... (2) Model of detections of species conditional on their occupancy states
+### ... Model parameters are drawn randomly from normal distributions (see code).
+### ... Model regressors are drawn randomly from uniform(-1,1) distributions and then centered and scaled.  
+
+
+
+function simulateData(n, m, Kmin, Kmax, qcovs, pcovs; seed=missing)
+    
+    ### Definition of function's arguments
+
+    ## n = no. sites
+    ## m = no. species
+    ## Kmin = minimum no. surveys per site during each time period
+    ## Kmax = maximum no. surveys per site during each time period
+    ## qcovs = no. regressors of detection (including intercept)
+    ## pcovs = no. regressors of occurrence (including intercept)
+
+    
+    
+    ###  Optionally, assign seed of random number generator
+
+    if (!ismissing(seed))
+        Random.seed!(seed)
+    end
+
+
+    
+    ### Specify distributions for drawing random values of parameters
+
+    unif_detectionProb = Uniform(0.1, 0.7)
+    unif_occurrenceProb = Uniform(0.2, 0.8)
+    normal_effectsOfRegressors = Normal(0.0, 0.5)
+    unif_regressors = Uniform(-1.0, 1.0)
+    
+    
+    ### Calculate indexes for accessing elements of a symmetric m x m matrix
+    
+    lowerTri = tril!(trues(m,m), -1)  # BitArray to index the strict lower triangle of a m x m matrix
+    upperTri = triu!(trues(m,m), 1)   # BitArray to index the strict upper triangle of a m x m matrix
+    
+
+
+    ### Simulate multispecies occupancy states using multivariate probit regression model
+
+    ## ... draw random value of correlation matrixx
+
+    R_param = rand(LKJ(m, 1.0))
+    
+
+    ## ... draw random values of species occurrence parameters
+
+    beta_param = Matrix{Float64}(undef, pcovs, m)
+    probs = rand(unif_occurrenceProb, m)
+    beta_param[1, :] = quantile.(Normal(), probs)
+    if pcovs > 1
+        for i in 2:pcovs
+            beta_param[i, :] = rand(normal_effectsOfRegressors, m)
+        end    
+    end
+
+
+    ## ... draw random values of species occurrence regressors
+
+    X = Matrix{Float64}(undef, n, pcovs)
+
+    X[:, 1] .= 1.0
+    if pcovs > 1
+        Xcovs = rand(unif_regressors, n, pcovs-1)
+        X[:, 2:pcovs] = standardize(ZScoreTransform, Xcovs, dims=1)
+    end
+
+
+    ## ... compute occupancy states using probit-regression model
+
+    mu = X * beta_param
+    
+    umat = Matrix{Float64}(undef, n, m)
+    for i in 1:n
+        umat[i, :] = rand(MvNormal(mu[i, :], R_param))
+    end
+
+    Z = Int.( umat .> zeros(n,m) )
+
+
+
+    ### Simulate detections of species conditional on their occupancy states
+
+    ## ... draw random values of species detection parameters
+
+    alpha_param = Matrix{Float64}(undef, qcovs, m)
+    probs = rand(unif_detectionProb, m)
+    alpha_param[1, :] = quantile.(Normal(), probs)
+    if qcovs > 1
+        for i in 2:qcovs
+            alpha_param[i, :] = rand(normal_effectsOfRegressors, m)
+        end    
+    end
+
+    ## ... draw random values of species detection regressors
+
+    K_set = collect(Int(Kmin):Int(Kmax))
+    
+    K = Distributions.sample(K_set, n, replace=true)  ## n-vector of no. surveys per site
+
+    V = Array{Union{Float64, Missing}, 3}(undef, n, maximum(K), qcovs)    # all elements of V are initialized to a "missing" value
+
+    for i in 1:n
+        for k in 1:K[i]
+            
+            V[i,k,1] = 1.0
+            if qcovs > 1
+                V[i,k, 2:qcovs] = rand(unif_regressors, qcovs-1)
+            end
+            
+        end
+    end
+
+    ## ... center and scale each regressor to have zero mean and unit variance
+    if qcovs > 1
+        Vmean = Vector{Float64}(undef, qcovs)
+        Vsd = Vector{Float64}(undef, qcovs)
+        for l in 2:qcovs
+            tempVec = Vector{Float64}(undef, 0)
+            for i in 1:n
+                for k in 1:K[i]
+                    tempVec = vcat(tempVec, Float64(V[i,k,l]))
+                end
+            end
+            Vmean[l] = mean(tempVec)
+            Vsd[l] = std(tempVec)
+        end
+        ## ... use mean and sd to center and scale regressors
+        for l in 2:qcovs
+            for i in 1:n
+                for k in 1:K[i]
+                    V[i,k,l] = (V[i,k,l] - Vmean[l]) / Vsd[l]
+                end
+            end
+        end
+        
+    end  # end of check that qcovs > 1
+
+
+    ## ... draw each detection randomly conditional on species occurrence
+    
+    Y = Array{Union{Int, Missing}, 3}(undef, n, maximum(K), m)    # all elements of Y are initialized to a "missing" value
+    for j in 1:m
+        for i in 1:n
+            for k in 1:K[i]
+                prob = cdf(Normal(), Float64( dot(V[i,k, :], alpha_param[:, j]) ) )  # type conversion needed to use cdf()
+                Y[i,k,j] = Int( rand(Bernoulli(prob*Z[i,j])) )
+            end
+        end
+    end
+    
+    
+    
+
+    ### Assign parameter values and data values to lists
+
+    param = paramList(alpha_param, beta_param, R_param, Z)
+    
+    data = dataList(Y, X, V)
+
+    
+    return simulated_dataAndparams(param, data)
+
+    
+end
